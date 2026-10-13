@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -96,18 +97,8 @@ func (s *Store) write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 
 func (s *Store) CreateRun(ctx context.Context, run durable.Run) (durable.Run, bool, error) {
 	created := false
-	err := s.write(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO durable_runs (`+runColumns+`, seq)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM durable_runs))
-			ON CONFLICT (id) DO NOTHING`,
-			run.ID, run.Workflow, run.Input, run.Status, run.Output, run.Error, run.ConcurrencyKey, run.ConcurrencyLimit,
-			run.Owner, nanos(run.LeaseUntil), nanos(run.WakeAt), run.WaitSignal, run.CancelRequested,
-			nanos(run.CreatedAt), nanos(run.UpdatedAt), nanos(run.FinishedAt))
-		if err != nil {
-			return err
-		}
-		n, err := res.RowsAffected()
-		created = n == 1
+	err := s.write(ctx, func(tx *sql.Tx) (err error) {
+		created, err = insertRun(ctx, tx, run)
 		return err
 	})
 	if err != nil {
@@ -115,6 +106,34 @@ func (s *Store) CreateRun(ctx context.Context, run durable.Run) (durable.Run, bo
 	}
 	got, err := s.GetRun(ctx, run.ID)
 	return got, created, err
+}
+
+func (s *Store) CreateRunTx(ctx context.Context, tx *sql.Tx, run durable.Run) error {
+	if _, err := insertRun(ctx, tx, run); err != nil {
+		return err
+	}
+	got, err := getRun(ctx, tx, run.ID)
+	if err != nil {
+		return err
+	}
+	if got.Workflow != run.Workflow {
+		return fmt.Errorf("%w: %s is a %s run", durable.ErrIDConflict, got.ID, got.Workflow)
+	}
+	return nil
+}
+
+func insertRun(ctx context.Context, tx *sql.Tx, run durable.Run) (bool, error) {
+	res, err := tx.ExecContext(ctx, `INSERT INTO durable_runs (`+runColumns+`, seq)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM durable_runs))
+		ON CONFLICT (id) DO NOTHING`,
+		run.ID, run.Workflow, run.Input, run.Status, run.Output, run.Error, run.ConcurrencyKey, run.ConcurrencyLimit,
+		run.Owner, nanos(run.LeaseUntil), nanos(run.WakeAt), run.WaitSignal, run.CancelRequested,
+		nanos(run.CreatedAt), nanos(run.UpdatedAt), nanos(run.FinishedAt))
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }
 
 func (s *Store) GetRun(ctx context.Context, id string) (durable.Run, error) {

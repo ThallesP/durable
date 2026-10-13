@@ -78,6 +78,21 @@ hit it).
   least once, so they must be idempotent.
 - Statuses: `pending`, `running`, `waiting`, `stalled`, `succeeded`, `failed`, `cancelled`.
 
+## Starting a run in your own transaction
+
+`Start` writes the run by itself, so a crash between your commit and `Start` leaves your row without
+its run. When the two must exist together, build the run with `NewRun` and insert it in the same
+transaction. `sqlitestore` does that on any `*sql.Tx` of its database:
+
+```go
+run, err := deploy.NewRun(in, durable.WithID("deploy:"+id))
+tx, err := db.BeginTx(ctx, nil)
+// insert the deployment row
+err = store.CreateRunTx(ctx, tx, run) // the same ID again is a no-op, another workflow's is ErrIDConflict
+err = tx.Commit()
+eng.Wake()                            // claim it now instead of at the next poll
+```
+
 ## Rules for workflow code
 
 `durablecheck` enforces these.
