@@ -81,9 +81,25 @@ func WithID(id string) StartOption {
 func (w *Workflow[I, O]) Name() string { return w.reg.name }
 
 func (w *Workflow[I, O]) Start(ctx context.Context, in I, opts ...StartOption) (*Handle[O], error) {
-	input, err := json.Marshal(in)
+	run, err := w.NewRun(in, opts...)
 	if err != nil {
 		return nil, err
+	}
+	got, _, err := w.engine.store.CreateRun(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	if got.Workflow != run.Workflow {
+		return nil, fmt.Errorf("%w: %s is a %s run", ErrIDConflict, got.ID, got.Workflow)
+	}
+	w.engine.poke()
+	return w.Handle(got.ID), nil
+}
+
+func (w *Workflow[I, O]) NewRun(in I, opts ...StartOption) (Run, error) {
+	input, err := json.Marshal(in)
+	if err != nil {
+		return Run{}, err
 	}
 	now := time.Now()
 	run := Run{
@@ -104,16 +120,7 @@ func (w *Workflow[I, O]) Start(ctx context.Context, in I, opts ...StartOption) (
 	for _, opt := range opts {
 		opt(&run)
 	}
-
-	got, _, err := w.engine.store.CreateRun(ctx, run)
-	if err != nil {
-		return nil, err
-	}
-	if got.Workflow != run.Workflow {
-		return nil, fmt.Errorf("%w: %s is a %s run", ErrIDConflict, got.ID, got.Workflow)
-	}
-	w.engine.poke()
-	return w.Handle(got.ID), nil
+	return run, nil
 }
 
 func (w *Workflow[I, O]) Handle(id string) *Handle[O] {

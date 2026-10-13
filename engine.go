@@ -343,6 +343,8 @@ func (e *Engine) wait(ctx context.Context, runID string) (Run, error) {
 	}
 }
 
+func (e *Engine) Wake() { e.poke() }
+
 func (e *Engine) poke() {
 	select {
 	case e.pokes <- struct{}{}:
