@@ -149,3 +149,7 @@ its `ConcurrencyKey` already has `ConcurrencyLimit` runs running or waiting. Eve
 behalf of a run (`SaveStep`, `ConsumeSignal`, `Release`, `FinishRun`) fails with `ErrLeaseLost`
 unless that owner holds the run. `ConsumeSignal` pops the oldest signal with that name and saves the
 step in one transaction. `Release` and `SendSignal` wake a run waiting on a signal that's there.
+
+## Community
+
+Questions, ideas or just want to talk? Come say hi on [Discord](https://discord.gg/pF5wfWZMSH).
